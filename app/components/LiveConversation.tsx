@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, Session, LiveServerMessage, Modality } from '@google/genai';
-import { BEGLEITER_SYSTEM_PROMPT } from '@/lib/system-prompt';
+import { BEGLEITER_VOICE_PROMPT } from '@/lib/system-prompt';
 
 // Audio constants
 const SAMPLE_RATE = 16000;
@@ -37,6 +37,7 @@ export default function LiveConversation() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioQueueRef = useRef<Float32Array[]>([]);
   const isPlayingRef = useRef(false);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll
@@ -86,8 +87,10 @@ export default function LiveConversation() {
     source.connect(ctx.destination);
     source.onended = () => {
       isPlayingRef.current = false;
+      currentSourceRef.current = null;
       drainAudioQueue();
     };
+    currentSourceRef.current = source;
     source.start();
   }, []);
 
@@ -151,7 +154,11 @@ export default function LiveConversation() {
     };
 
     source.connect(processor);
-    processor.connect(ctx.destination); // Required for ScriptProcessor to work
+    // ScriptProcessor must connect to something to fire, but we don't want mic feedback
+    const silentDest = ctx.createGain();
+    silentDest.gain.value = 0;
+    silentDest.connect(ctx.destination);
+    processor.connect(silentDest);
     workletNodeRef.current = processor as unknown as AudioWorkletNode;
   }, []);
 
@@ -170,8 +177,9 @@ export default function LiveConversation() {
       }
       const { token } = await tokenRes.json();
 
-      // Create audio context
+      // Create audio context (resume for autoplay policy)
       const ctx = new AudioContext({ sampleRate: PLAYBACK_RATE });
+      if (ctx.state === 'suspended') await ctx.resume();
       audioContextRef.current = ctx;
 
       // Connect to Gemini Live
@@ -202,7 +210,7 @@ export default function LiveConversation() {
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: {
-            parts: [{ text: BEGLEITER_SYSTEM_PROMPT }],
+            parts: [{ text: BEGLEITER_VOICE_PROMPT }],
           },
           speechConfig: {
             voiceConfig: {
@@ -238,8 +246,14 @@ export default function LiveConversation() {
       if (content.modelTurn?.parts) {
         for (const part of content.modelTurn.parts) {
           if (part.text) {
-            setSpeakingState('speaking');
-            setCurrentModelText(prev => prev + part.text);
+            // Filter thinking traces (start with ** or contain planning language)
+            const text = part.text;
+            const isThinking = text.startsWith('**') || text.startsWith('*') ||
+              /^(I've|I'm|Let me|The user|Processing|Crafting|Outputting|Formulating)/i.test(text.trim());
+            if (!isThinking) {
+              setSpeakingState('speaking');
+              setCurrentModelText(prev => prev + text);
+            }
           }
           if (part.inlineData?.data) {
             // Audio data
@@ -255,9 +269,15 @@ export default function LiveConversation() {
       }
 
       if (content.interrupted) {
-        // Clear audio queue on interruption
+        // Stop current playback and clear queue
+        if (currentSourceRef.current) {
+          try { currentSourceRef.current.stop(); } catch {}
+          currentSourceRef.current = null;
+        }
         audioQueueRef.current = [];
         isPlayingRef.current = false;
+        setCurrentModelText('');
+        setSpeakingState('listening');
       }
 
       if (content.turnComplete) {
