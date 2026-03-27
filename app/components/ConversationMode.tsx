@@ -228,11 +228,8 @@ export default function ConversationMode() {
           {/* Error */}
           {error && (
             <div className="text-center animate-fade-in">
-              <p className="text-xs font-mono text-red-400/80 bg-red-400/10 inline-block px-4 py-2 rounded-lg">
-                {error.includes('GEMINI_API_KEY')
-                  ? 'API-Schlüssel fehlt. Bitte GEMINI_API_KEY konfigurieren.'
-                  : `Fehler: ${error}`
-                }
+              <p className="text-xs font-mono text-red-400/80 bg-red-400/10 inline-block px-4 py-2 rounded-lg max-w-md">
+                {error.length > 120 ? 'Verbindungsproblem. Bitte versuche es erneut.' : error}
               </p>
             </div>
           )}
