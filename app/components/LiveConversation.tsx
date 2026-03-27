@@ -7,8 +7,7 @@ import { BEGLEITER_SYSTEM_PROMPT } from '@/lib/system-prompt';
 // Audio constants
 const SAMPLE_RATE = 16000;
 const PLAYBACK_RATE = 24000;
-const LIVE_MODEL = 'gemini-2.5-flash-preview-native-audio-dialog';
-const FALLBACK_MODEL = 'gemini-2.0-flash-live-preview-04-09';
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-latest';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 type SpeakingState = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -178,73 +177,42 @@ export default function LiveConversation() {
       // Connect to Gemini Live
       const ai = new GoogleGenAI({ apiKey: token });
 
-      let modelToUse = LIVE_MODEL;
-      let session: Session;
-
-      try {
-        session = await ai.live.connect({
-          model: modelToUse,
-          callbacks: {
-            onopen: () => {
-              console.log('Live session opened');
-            },
-            onmessage: (msg: LiveServerMessage) => {
-              handleServerMessage(msg);
-            },
-            onerror: (err: ErrorEvent) => {
-              console.error('Live session error:', err);
-              setError('Sitzungsfehler. Bitte neu verbinden.');
-              setConnectionState('error');
-            },
-            onclose: (ev: CloseEvent) => {
-              console.log('Live session closed:', ev.code, ev.reason);
-              setConnectionState('disconnected');
-              setSpeakingState('idle');
-            },
+      const session = await ai.live.connect({
+        model: LIVE_MODEL,
+        callbacks: {
+          onopen: () => {
+            console.log('Live session opened');
           },
-          config: {
-            responseModalities: [Modality.AUDIO, Modality.TEXT],
-            systemInstruction: {
-              parts: [{ text: BEGLEITER_SYSTEM_PROMPT }],
-            },
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: 'Orus',
-                },
+          onmessage: (msg: LiveServerMessage) => {
+            handleServerMessage(msg);
+          },
+          onerror: (err: ErrorEvent) => {
+            console.error('Live session error:', err);
+            setError('Sitzungsfehler. Bitte neu verbinden.');
+            setConnectionState('error');
+          },
+          onclose: (ev: CloseEvent) => {
+            console.log('Live session closed:', ev.code, ev.reason);
+            if (connectionState !== 'error') {
+              setConnectionState('disconnected');
+            }
+            setSpeakingState('idle');
+          },
+        },
+        config: {
+          responseModalities: [Modality.AUDIO],
+          systemInstruction: {
+            parts: [{ text: BEGLEITER_SYSTEM_PROMPT }],
+          },
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: 'Kore',
               },
-              languageCode: 'de-DE',
             },
           },
-        });
-      } catch (firstErr) {
-        // Fallback model
-        console.warn('Primary model failed, trying fallback:', firstErr);
-        modelToUse = FALLBACK_MODEL;
-        session = await ai.live.connect({
-          model: modelToUse,
-          callbacks: {
-            onopen: () => console.log('Live session opened (fallback)'),
-            onmessage: (msg: LiveServerMessage) => handleServerMessage(msg),
-            onerror: (err: ErrorEvent) => {
-              console.error('Live error:', err);
-              setError('Sitzungsfehler. Bitte neu verbinden.');
-              setConnectionState('error');
-            },
-            onclose: (ev: CloseEvent) => {
-              console.log('Live closed:', ev.code, ev.reason);
-              setConnectionState('disconnected');
-              setSpeakingState('idle');
-            },
-          },
-          config: {
-            responseModalities: [Modality.AUDIO, Modality.TEXT],
-            systemInstruction: {
-              parts: [{ text: BEGLEITER_SYSTEM_PROMPT }],
-            },
-          },
-        });
-      }
+        },
+      });
 
       sessionRef.current = session;
       setConnectionState('connected');

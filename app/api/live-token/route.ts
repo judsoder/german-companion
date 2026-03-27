@@ -1,5 +1,12 @@
-import { GoogleGenAI, Modality } from '@google/genai';
-
+/**
+ * Returns the API key for client-side Live connection.
+ * 
+ * For production, this should use ephemeral tokens (ai.authTokens.create).
+ * Currently, ephemeral tokens have compatibility issues with speechConfig
+ * and the native-audio models. This endpoint exists so the API key stays
+ * in env vars (not hardcoded in client code) and can be swapped to 
+ * ephemeral tokens when the API stabilizes.
+ */
 export async function POST() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -9,31 +16,8 @@ export async function POST() {
     );
   }
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const token = await ai.authTokens.create({
-      config: {
-        httpOptions: { apiVersion: 'v1alpha' },
-        // Constrain to our live model and config
-        liveConnectConstraints: {
-          config: {
-            responseModalities: [Modality.AUDIO, Modality.TEXT],
-          },
-        },
-        expireTime: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 min
-      },
-    });
-
-    return new Response(
-      JSON.stringify({ token: token.name }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Token creation failed';
-    console.error('Token creation error:', msg);
-    return new Response(
-      JSON.stringify({ error: msg }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  return new Response(
+    JSON.stringify({ token: apiKey }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
 }
