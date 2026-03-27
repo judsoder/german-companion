@@ -2,19 +2,21 @@
 
 import { useState } from 'react';
 import ConversationMode from './components/ConversationMode';
+import LiveConversation from './components/LiveConversation';
 import ReadingMode from './components/ReadingMode';
 import PhrasesMode from './components/PhrasesMode';
 
-type Mode = 'conversation' | 'reading' | 'phrases';
+type Mode = 'live' | 'conversation' | 'reading' | 'phrases';
 
 const MODE_LABELS: Record<Mode, { label: string; sublabel: string }> = {
-  conversation: { label: 'Gespräch', sublabel: 'speak' },
+  live: { label: 'Sprechen', sublabel: 'live' },
+  conversation: { label: 'Gespräch', sublabel: 'text' },
   reading: { label: 'Lektüre', sublabel: 'read' },
   phrases: { label: 'Wörter', sublabel: 'saved' },
 };
 
 export default function Home() {
-  const [mode, setMode] = useState<Mode>('conversation');
+  const [mode, setMode] = useState<Mode>('live');
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -56,6 +58,7 @@ export default function Home() {
 
       {/* Content */}
       <main className="flex-1 overflow-hidden">
+        {mode === 'live' && <LiveConversation />}
         {mode === 'conversation' && <ConversationMode />}
         {mode === 'reading' && <ReadingMode />}
         {mode === 'phrases' && <PhrasesMode />}
