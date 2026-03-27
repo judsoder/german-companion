@@ -1,64 +1,64 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import ConversationMode from './components/ConversationMode';
+import ReadingMode from './components/ReadingMode';
+import PhrasesMode from './components/PhrasesMode';
+
+type Mode = 'conversation' | 'reading' | 'phrases';
+
+const MODE_LABELS: Record<Mode, { label: string; sublabel: string }> = {
+  conversation: { label: 'Gespräch', sublabel: 'speak' },
+  reading: { label: 'Lektüre', sublabel: 'read' },
+  phrases: { label: 'Wörter', sublabel: 'saved' },
+};
 
 export default function Home() {
+  const [mode, setMode] = useState<Mode>('conversation');
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="border-b border-border px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="font-serif text-2xl font-medium tracking-wide text-accent">
+            Begleiter
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+          <span className="text-ink-faint text-xs font-mono mt-1">companion</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Mode switcher */}
+        <nav className="flex gap-1 bg-surface-raised rounded-lg p-1">
+          {(Object.keys(MODE_LABELS) as Mode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`
+                px-4 py-1.5 rounded-md text-sm transition-all duration-200
+                ${mode === m
+                  ? 'bg-surface-active text-ink font-medium'
+                  : 'text-ink-muted hover:text-ink hover:bg-surface-hover'
+                }
+              `}
+            >
+              <span className="font-serif italic">{MODE_LABELS[m].label}</span>
+              <span className="text-ink-faint text-xs ml-1.5 font-mono">{MODE_LABELS[m].sublabel}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Status */}
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-german animate-pulse-soft" />
+          <span className="text-xs font-mono text-ink-faint">bereit</span>
         </div>
+      </header>
+
+      {/* Content */}
+      <main className="flex-1 overflow-hidden">
+        {mode === 'conversation' && <ConversationMode />}
+        {mode === 'reading' && <ReadingMode />}
+        {mode === 'phrases' && <PhrasesMode />}
       </main>
     </div>
   );
