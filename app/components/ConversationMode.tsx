@@ -1,83 +1,186 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 interface Message {
   id: string;
   role: 'user' | 'companion';
-  german: string;
-  english?: string;
+  text: string;
   timestamp: string;
-  annotation?: string;
+  streaming?: boolean;
 }
 
-const MOCK_CONVERSATION: Message[] = [
-  {
-    id: '1',
-    role: 'companion',
-    german: 'Guten Morgen. Wie geht es dir heute? Du hast gestern über Hesse geschrieben — möchtest du darüber sprechen?',
-    english: 'Good morning. How are you today? You wrote about Hesse yesterday — would you like to talk about it?',
-    timestamp: '8:14',
-  },
-  {
-    id: '2',
-    role: 'user',
-    german: 'Ja, ich habe Siddhartha noch einmal gelesen. Es war... anders als beim ersten Mal.',
-    timestamp: '8:14',
-  },
-  {
-    id: '3',
-    role: 'companion',
-    german: 'Anders — inwiefern? Was hat sich verändert, das Buch oder du?',
-    english: 'Different — in what way? What changed, the book or you?',
-    timestamp: '8:15',
-    annotation: 'inwiefern = in what respect/way (more precise than "wie")',
-  },
-  {
-    id: '4',
-    role: 'user',
-    german: 'Ich glaube, ich habe mich verändert. Siddhartha sucht immer... er sucht immer etwas Neues.',
-    timestamp: '8:15',
-  },
-  {
-    id: '5',
-    role: 'companion',
-    german: 'Ja, genau. Und am Ende erkennt er, dass das Suchen selbst der Weg war. Das erinnert mich an etwas, das du in deinem Tagebuch geschrieben hast — „Bauen, nicht suchen."',
-    english: 'Yes, exactly. And in the end he realizes that the searching itself was the path. That reminds me of something you wrote in your journal — "Building, not seeking."',
-    timestamp: '8:16',
-  },
-  {
-    id: '6',
-    role: 'user',
-    german: 'Stimmt. Das ist genau das... wie sagt man "connection"?',
-    timestamp: '8:16',
-  },
-  {
-    id: '7',
-    role: 'companion',
-    german: 'Die Verbindung. Oder in diesem Zusammenhang vielleicht: der Zusammenhang — the deeper connection between ideas. Du könntest sagen: „Das ist genau der Zusammenhang, den ich meine."',
-    annotation: 'Verbindung = connection (general) · Zusammenhang = connection/context (between ideas, concepts)',
-    timestamp: '8:17',
-  },
-];
+type ConversationMode = 'normal' | 'simple' | 'correct' | 'german-only';
+
+function getTimestamp(): string {
+  const now = new Date();
+  return `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+const GREETING: Message = {
+  id: 'greeting',
+  role: 'companion',
+  text: 'Hallo. Worüber möchtest du heute sprechen? Wir können über ein Buch reden, etwas aus deinem Tag, oder einfach ein Thema, das dich interessiert.',
+  timestamp: getTimestamp(),
+};
 
 export default function ConversationMode() {
-  const [showEnglish, setShowEnglish] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [inputText, setInputText] = useState('');
-  const [isListening, setIsListening] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [mode, setMode] = useState<ConversationMode>('normal');
+  const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-scroll on new messages
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || isStreaming) return;
+
+    setError(null);
+    const userMsg: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      text: text.trim(),
+      timestamp: getTimestamp(),
+    };
+
+    const companionId = `companion-${Date.now()}`;
+    const companionMsg: Message = {
+      id: companionId,
+      role: 'companion',
+      text: '',
+      timestamp: getTimestamp(),
+      streaming: true,
+    };
+
+    setMessages(prev => [...prev, userMsg, companionMsg]);
+    setInputText('');
+    setIsStreaming(true);
+
+    // Build API messages (exclude the empty streaming placeholder)
+    const apiMessages = [...messages, userMsg]
+      .filter(m => m.id !== 'greeting' || m.role === 'companion')
+      .map(m => ({
+        role: m.role === 'user' ? 'user' as const : 'model' as const,
+        text: m.text,
+      }));
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: apiMessages,
+          mode: mode === 'normal' ? undefined : mode,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response stream');
+
+      const decoder = new TextDecoder();
+      let accumulated = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.error) throw new Error(parsed.error);
+              if (parsed.text) {
+                accumulated += parsed.text;
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === companionId
+                      ? { ...m, text: accumulated }
+                      : m
+                  )
+                );
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue; // partial JSON
+              throw e;
+            }
+          }
+        }
+      }
+
+      // Mark streaming complete
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === companionId
+            ? { ...m, streaming: false, timestamp: getTimestamp() }
+            : m
+        )
+      );
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMsg);
+      // Remove the empty companion message on error
+      setMessages(prev => prev.filter(m => m.id !== companionId));
+    } finally {
+      setIsStreaming(false);
+      inputRef.current?.focus();
+    }
+  }, [messages, isStreaming, mode]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    sendMessage(inputText);
+  };
+
+  const handleQuickAction = (action: string) => {
+    if (action === 'german-only') {
+      setMode('german-only');
+      sendMessage('Auf Deutsch bleiben.');
+    } else if (action === 'simple') {
+      setMode('simple');
+      sendMessage('Einfacher bitte.');
+    } else if (action === 'correct') {
+      setMode('correct');
+      sendMessage('Korrigiere mich bitte.');
+    } else if (action === 'anders') {
+      sendMessage('Anders sagen.');
+    } else if (action === 'topic') {
+      sendMessage('Lass uns das Thema wechseln.');
+    }
+  };
 
   return (
     <div className="h-full flex flex-col">
       {/* Conversation area */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="max-w-2xl mx-auto space-y-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="max-w-2xl mx-auto space-y-5">
           {/* Session header */}
           <div className="text-center mb-8">
-            <p className="text-ink-faint text-xs font-mono">donnerstag, 27. märz · sitzung 47</p>
-            <p className="text-ink-muted text-sm mt-1 font-serif italic">Über Hesse und das Suchen</p>
+            <p className="text-ink-faint text-xs font-mono">
+              {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).toLowerCase()}
+            </p>
+            <p className="text-ink-muted text-sm mt-1 font-serif italic">Gespräch mit Begleiter</p>
           </div>
 
-          {MOCK_CONVERSATION.map((msg) => (
+          {messages.map((msg) => (
             <div
               key={msg.id}
               className={`animate-fade-in ${msg.role === 'user' ? 'flex justify-end' : ''}`}
@@ -91,54 +194,48 @@ export default function ConversationMode() {
                   }
                 `}
               >
-                {/* German text */}
-                <p className="text-[0.95rem] leading-relaxed">{msg.german}</p>
+                {/* Message text */}
+                <p className="text-[0.95rem] leading-relaxed whitespace-pre-wrap">
+                  {msg.text}
+                  {msg.streaming && !msg.text && (
+                    <span className="text-ink-faint animate-pulse-soft">…</span>
+                  )}
+                  {msg.streaming && msg.text && (
+                    <span className="text-ink-faint animate-pulse-soft">▍</span>
+                  )}
+                </p>
 
-                {/* Annotation */}
-                {msg.annotation && (
-                  <div className="mt-3 pt-2.5 border-t border-border-light">
-                    <p className="text-xs text-german font-mono leading-relaxed">{msg.annotation}</p>
-                  </div>
-                )}
-
-                {/* Controls for companion messages */}
-                {msg.role === 'companion' && (
-                  <div className="mt-3 flex items-center gap-3">
-                    <button
-                      onClick={() => setShowEnglish(showEnglish === msg.id ? null : msg.id)}
-                      className="text-xs font-mono text-ink-faint hover:text-english transition-colors"
-                    >
-                      {showEnglish === msg.id ? 'hide english' : 'en'}
-                    </button>
-                    <button className="text-xs font-mono text-ink-faint hover:text-accent transition-colors">
-                      slower
-                    </button>
-                    <button className="text-xs font-mono text-ink-faint hover:text-accent transition-colors">
-                      anders sagen
-                    </button>
-                    <button className="text-xs font-mono text-ink-faint hover:text-accent transition-colors">
-                      🔊
-                    </button>
-                    <span className="text-xs font-mono text-ink-faint ml-auto">{msg.timestamp}</span>
-                  </div>
-                )}
-
-                {/* English translation (toggled) */}
-                {showEnglish === msg.id && msg.english && (
-                  <div className="mt-2 animate-fade-in">
-                    <p className="text-sm text-english italic leading-relaxed">{msg.english}</p>
-                  </div>
-                )}
-
-                {/* User message timestamp */}
-                {msg.role === 'user' && (
-                  <div className="mt-1 flex justify-end">
-                    <span className="text-xs font-mono text-ink-faint">{msg.timestamp}</span>
-                  </div>
-                )}
+                {/* Timestamp */}
+                <div className={`mt-2 flex ${msg.role === 'user' ? 'justify-end' : 'items-center gap-3'}`}>
+                  {msg.role === 'companion' && !msg.streaming && (
+                    <>
+                      <button
+                        onClick={() => handleQuickAction('anders')}
+                        className="text-xs font-mono text-ink-faint hover:text-accent transition-colors"
+                      >
+                        anders sagen
+                      </button>
+                    </>
+                  )}
+                  <span className={`text-xs font-mono text-ink-faint ${msg.role === 'companion' ? 'ml-auto' : ''}`}>
+                    {msg.timestamp}
+                  </span>
+                </div>
               </div>
             </div>
           ))}
+
+          {/* Error */}
+          {error && (
+            <div className="text-center animate-fade-in">
+              <p className="text-xs font-mono text-red-400/80 bg-red-400/10 inline-block px-4 py-2 rounded-lg">
+                {error.includes('GEMINI_API_KEY')
+                  ? 'API-Schlüssel fehlt. Bitte GEMINI_API_KEY konfigurieren.'
+                  : `Fehler: ${error}`
+                }
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -146,67 +243,64 @@ export default function ConversationMode() {
       <div className="border-t border-border px-6 py-4">
         <div className="max-w-2xl mx-auto">
           {/* Quick actions */}
-          <div className="flex gap-2 mb-3">
-            <QuickAction label="Auf Deutsch bleiben" active />
-            <QuickAction label="Korrigiere mich" />
-            <QuickAction label="Einfacher bitte" />
-            <QuickAction label="Thema wechseln" />
+          <div className="flex gap-2 mb-3 flex-wrap">
+            <QuickAction
+              label="Auf Deutsch bleiben"
+              active={mode === 'german-only'}
+              onClick={() => handleQuickAction('german-only')}
+            />
+            <QuickAction
+              label="Korrigiere mich"
+              active={mode === 'correct'}
+              onClick={() => handleQuickAction('correct')}
+            />
+            <QuickAction
+              label="Einfacher bitte"
+              active={mode === 'simple'}
+              onClick={() => handleQuickAction('simple')}
+            />
+            <QuickAction
+              label="Thema wechseln"
+              onClick={() => handleQuickAction('topic')}
+            />
           </div>
 
           {/* Input */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsListening(!isListening)}
-              className={`
-                w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300
-                ${isListening
-                  ? 'bg-german text-surface scale-110 shadow-lg shadow-german/20'
-                  : 'bg-surface-raised border border-border hover:border-german text-ink-muted hover:text-german'
-                }
-              `}
-            >
-              <span className="text-lg">{isListening ? '●' : '🎙'}</span>
-            </button>
+          <form onSubmit={handleSubmit} className="flex items-center gap-3">
             <div className="flex-1 relative">
               <input
+                ref={inputRef}
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder={isListening ? 'Ich höre zu...' : 'Auf Deutsch schreiben...'}
+                placeholder="Auf Deutsch schreiben..."
+                disabled={isStreaming}
                 className="w-full bg-surface-raised border border-border-light rounded-xl px-4 py-3 text-sm
-                  placeholder:text-ink-faint focus:outline-none focus:border-accent/40 transition-colors"
+                  placeholder:text-ink-faint focus:outline-none focus:border-accent/40 transition-colors
+                  disabled:opacity-50"
               />
-              {isListening && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="w-0.5 bg-german rounded-full animate-pulse-soft"
-                      style={{
-                        height: `${8 + Math.random() * 12}px`,
-                        animationDelay: `${i * 0.15}s`,
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
-            <button className="text-ink-faint hover:text-ink text-sm font-mono transition-colors">
+            <button
+              type="submit"
+              disabled={!inputText.trim() || isStreaming}
+              className="text-ink-faint hover:text-ink text-sm font-mono transition-colors
+                disabled:opacity-30 disabled:cursor-not-allowed px-2"
+            >
               ↵
             </button>
-          </div>
+          </form>
 
           {/* Status line */}
           <div className="mt-2 flex items-center justify-between">
             <p className="text-xs font-mono text-ink-faint">
-              {isListening ? (
-                <span className="text-german">● aufnahme läuft</span>
+              {isStreaming ? (
+                <span className="text-german">● begleiter denkt…</span>
               ) : (
-                'sprechen oder tippen'
+                'schreib auf deutsch — oder auf englisch, ich antworte trotzdem auf deutsch'
               )}
             </p>
             <p className="text-xs font-mono text-ink-faint">
-              sitzung: 23 min · 14 neue wörter
+              {messages.filter(m => m.role === 'user').length} nachrichten
             </p>
           </div>
         </div>
@@ -215,9 +309,10 @@ export default function ConversationMode() {
   );
 }
 
-function QuickAction({ label, active }: { label: string; active?: boolean }) {
+function QuickAction({ label, active, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
   return (
     <button
+      onClick={onClick}
       className={`
         px-3 py-1 rounded-full text-xs font-mono transition-all
         ${active
