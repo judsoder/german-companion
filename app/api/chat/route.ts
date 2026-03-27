@@ -5,9 +5,9 @@ export const runtime = 'edge';
 
 // Models to try in order of preference
 const MODELS = [
+  'gemini-2.5-flash',
   'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
+  'gemini-2.5-flash-lite',
 ];
 
 interface ChatMessage {

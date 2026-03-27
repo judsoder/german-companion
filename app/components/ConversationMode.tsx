@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 interface Message {
   id: string;
@@ -17,15 +17,17 @@ function getTimestamp(): string {
   return `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
-const GREETING: Message = {
-  id: 'greeting',
-  role: 'companion',
-  text: 'Hallo. Worüber möchtest du heute sprechen? Wir können über ein Buch reden, etwas aus deinem Tag, oder einfach ein Thema, das dich interessiert.',
-  timestamp: getTimestamp(),
-};
+function makeGreeting(): Message {
+  return {
+    id: 'greeting',
+    role: 'companion',
+    text: 'Hallo. Worüber möchtest du heute sprechen? Wir können über ein Buch reden, etwas aus deinem Tag, oder einfach ein Thema, das dich interessiert.',
+    timestamp: getTimestamp(),
+  };
+}
 
 export default function ConversationMode() {
-  const [messages, setMessages] = useState<Message[]>([GREETING]);
+  const [messages, setMessages] = useState<Message[]>(() => [makeGreeting()]);
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('normal');
@@ -175,7 +177,7 @@ export default function ConversationMode() {
           {/* Session header */}
           <div className="text-center mb-8">
             <p className="text-ink-faint text-xs font-mono">
-              {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).toLowerCase()}
+              gespräch
             </p>
             <p className="text-ink-muted text-sm mt-1 font-serif italic">Gespräch mit Begleiter</p>
           </div>
